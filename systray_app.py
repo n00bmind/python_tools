@@ -5,10 +5,10 @@
 #
 
 import os
-import sys
 import win32api
 import win32con
 import win32gui_struct
+from collections import Iterable
 
 try:
     import winxpgui as win32gui
@@ -21,12 +21,10 @@ class SysTrayApp(object):
 
     def __init__(self, menu_entries, icon_path='', hover_text='',
             on_quit=None, default_menu_action_index=None, window_class_name=None):
-        '''
-        self.hover_text = hover_text
-        self.on_quit = on_quit
-        '''
+
         self._icon_path = icon_path
         self._hover_text = hover_text
+        self._on_quit = on_quit
         self._default_menu_action_index = default_menu_action_index
         window_class_name = window_class_name or 'SysTrayApp'
 
@@ -36,7 +34,7 @@ class SysTrayApp(object):
 
         # Menu options
         menu_entries = menu_entries + (('Quit', None, SysTrayApp.QUIT_ACTION),)
-        self._init_menu_entries(menu_entries)
+        self._menu_entries, _ = self._build_menu_entries(menu_entries)
 
         # Window messages
         message_map = {
@@ -75,13 +73,37 @@ class SysTrayApp(object):
 
         win32gui.PumpMessages()
 
-    def _init_menu_entries(self, menu_entries, next_id=0):
+    def _build_menu_entries(self, menu_entries, next_id=None):
         '''
         Receives a list of (text, icon, action) tuples, appends an id to each
         entry, and builds a dictionary of ids to entries. The 'action' in each
         tuple can itself be a list of entries (for submenus).
         '''
-        pass
+        result = []
+
+        if next_id is None:
+            next_id = 0
+            self._ids_to_menu_entries = {}
+
+        for entry in menu_entries:
+            etext, eicon, eaction = entry
+
+            if callable(eaction) or eaction in self._special_actions or eaction is None:
+                entry = entry + (next_id,)
+                self._ids_to_menu_entries[next_id] = entry
+                result.append(entry)
+            elif self._nonstring_iterable(eaction):
+                alist, next_id = self._build_menu_entries(eaction, next_id)
+                result.append((etext, eicon, alist, next_id))
+            else:
+                raise ValueError('Invalid action for item', etext)
+
+            next_id += 1
+
+        return result, next_id
+
+    def _nonstring_iterable(self, obj):
+        return isinstance(obj, Iterable) and not isinstance(obj, str)
 
     def _refresh_icon(self, first_run=False):
         # Try to load app icon
@@ -128,7 +150,7 @@ class SysTrayApp(object):
 
         if menu_action in self._special_actions:
             self._special_actions[menu_action]()
-        else:
+        elif menu_action:
             menu_action()
 
     def _command(self, hWnd, msg, wparam, lparam):
@@ -163,18 +185,76 @@ class SysTrayApp(object):
                                 0,
                                 self.hWnd,
                                 None)
-        win32gui.PostMessage(self.hWnd, win32con.WM_NULL, 0 ,0)
+        win32gui.PostMessage(self.hWnd, win32con.WM_NULL, 0, 0)
 
     def _create_menu_entries(self, menu, menu_entries):
-        pass
+        # Iterate in reverse so the 'Insert' doesn't screw the order
+        for etext, eicon, eaction, eid in reversed(menu_entries):
+            if eicon:
+                eicon = self._prep_menu_icon(eicon)
 
+            if eid in self._ids_to_menu_entries:
+                item, extras = win32gui_struct.PackMENUITEMINFO(text=etext,
+                                                                hbmpItem=eicon,
+                                                                wID=eid)
+                win32gui.InsertMenuItem(menu, 0, 1, item)
+            else:
+                submenu = win32gui.CreatePopupMenu()
+                self._create_menu_entries(submenu, eaction)
+                item, extras = win32gui_struct.PackMENUITEMINFO(text=etext,
+                                                                hbmpItem=eicon,
+                                                                hSubMenu=submenu)
+                win32gui.InsertMenuItem(menu, 0, 1, item)
 
+    def _prep_menu_icon(self, icon_path):
+        # First load the icon.
+        ico_x = win32api.GetSystemMetrics(win32con.SM_CXSMICON)
+        ico_y = win32api.GetSystemMetrics(win32con.SM_CYSMICON)
+        hicon = win32gui.LoadImage(0,
+                                   icon_path,
+                                   win32con.IMAGE_ICON,
+                                   ico_x,
+                                   ico_y,
+                                   win32con.LR_LOADFROMFILE)
 
+        hdcBitmap = win32gui.CreateCompatibleDC(0)
+        hdcScreen = win32gui.GetDC(0)
+        hbm = win32gui.CreateCompatibleBitmap(hdcScreen, ico_x, ico_y)
+        hbmOld = win32gui.SelectObject(hdcBitmap, hbm)
+        # Fill the background.
+        brush = win32gui.GetSysColorBrush(win32con.COLOR_MENU)
+        win32gui.FillRect(hdcBitmap, (0, 0, 16, 16), brush)
+        # unclear if brush needs to be feed.  Best clue I can find is:
+        # "GetSysColorBrush returns a cached brush instead of allocating a new
+        # one." - implies no DeleteObject
+        # draw the icon
+        win32gui.DrawIconEx(hdcBitmap, 0, 0, hicon, ico_x, ico_y, 0, 0, win32con.DI_NORMAL)
+        win32gui.SelectObject(hdcBitmap, hbmOld)
+        win32gui.DeleteDC(hdcBitmap)
 
-
-
+        return hbm
 
 
 # Minimal selft test
 if __name__ == '__main__':
-    SysTrayApp(())
+    import itertools, glob
+
+    def hello():
+        print("Hello World.")
+
+    def simon():
+        print("Hello Simon.")
+
+    def bye():
+        print('Bye, then.')
+
+    icons = itertools.cycle(glob.glob('*.ico'))
+    hover_text = "SysTrayIcon Demo"
+    menu_options = (('Say Hello', next(icons), hello),
+                    ('Switch Icon', None, None),
+                    ('A sub-menu', next(icons), (('Say Hello to Simon', next(icons), simon),
+                                                 ('Switch Icon', next(icons), None),
+                                                ))
+                   )
+
+    SysTrayApp(menu_options, next(icons), hover_text, on_quit=bye) #, default_menu_action_index=1)
