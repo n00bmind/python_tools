@@ -17,10 +17,22 @@ except ImportError:
 
 
 class SysTrayApp(object):
+    # ::Public API::
+
+    def update_tooltip(self, ttstring):
+        self._hover_text = ttstring
+        self._refresh_icon()
+
+    def quit(self):
+        self._quit_action()
+
+    # ::Implementation::
+
     QUIT_ACTION = '_quit_action'
 
     def __init__(self, menu_entries, icon_path='', hover_text='',
-            on_quit=None, default_menu_action_index=None, window_class_name=None):
+            on_quit=None, default_menu_action_index=None,
+            window_class_name=None):
 
         self._icon_path = icon_path
         self._hover_text = hover_text
