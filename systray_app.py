@@ -19,6 +19,9 @@ except ImportError:
 class SysTrayApp(object):
     # ::Public API::
 
+    def run(self):
+        win32gui.PumpMessages()
+
     def update_tooltip(self, ttstring):
         self._hover_text = ttstring
         self._refresh_icon()
@@ -82,8 +85,6 @@ class SysTrayApp(object):
 
         win32gui.UpdateWindow(self.hWnd)
         self._refresh_icon(True)
-
-        win32gui.PumpMessages()
 
     def _build_menu_entries(self, menu_entries, next_id=None):
         '''
