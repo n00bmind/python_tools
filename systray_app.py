@@ -17,6 +17,7 @@ except ImportError:
 
 
 class SysTrayApp(object):
+
     # ::Public API::
 
     def run(self):
@@ -54,9 +55,10 @@ class SysTrayApp(object):
         # Window messages
         message_map = {
             win32gui.RegisterWindowMessage('TaskbarCreated'): self._restart,
-            win32con.WM_DESTROY: self._destroy,
-            win32con.WM_COMMAND: self._command,
-            win32con.WM_USER+20: self._notify,
+            win32con.WM_ENDSESSION: self._destroy,
+            win32con.WM_DESTROY:    self._destroy,
+            win32con.WM_COMMAND:    self._command,
+            win32con.WM_USER+20:    self._notify,
         }
 
         # Register window class
